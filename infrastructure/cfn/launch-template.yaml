@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Amazon EKS Node Group -> node group resource of a Amazon EKS cluster"
+
+Parameters:
+  ClusterSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup::Id"
+    Description: The security group of the cluster control plane.
+
+  ClusterName:
+    Type: String
+    Description: The cluster name provided when the cluster was created. If it is incorrect, nodes will not be able to join the cluster.
+
+  VpcId:
+    Type: "AWS::EC2::VPC::Id"
+    Description: The VPD Id
+
+  ClusterCA:
+    Type: String
+    Description: Cluster Certificate Authority
+
+  ServiceCIDR:
+    Type: String
+    Description: Service CIDR
+
+  ClusterEndpoint:
+    Type: String
+    Description: EKS Cluster endpoint
+
+  ClusterVersion:
+    Type: String
+    Description: EKS Cluster Version
+
+Resources:
+  NodeInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "SpotterNodeRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMPatchAssociation"
+      Path: /
+
+  NodeInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - !Ref NodeInstanceRole
+
+  AL2023LaunchTemplate:
+    Type: "AWS::EC2::LaunchTemplate"
+    Properties:
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt NodeInstanceProfile.Arn
+        ImageId: !Sub "resolve:ssm:/aws/service/eks/optimized-ami/${ClusterVersion}/amazon-linux-2023/arm64/standard/recommended/image_id"
+        SecurityGroupIds:
+          - !Ref ClusterSecurityGroup
+        UserData: !Base64
+          "Fn::Sub": |
+            MIME-Version: 1.0
+            Content-Type: multipart/mixed; boundary="//"
+
+            --//
+            Content-Type: application/node.eks.aws
+
+            ---
+            apiVersion: node.eks.aws/v1alpha1
+            kind: NodeConfig
+            spec:
+              cluster:
+                apiServerEndpoint: ${ClusterEndpoint}
+                certificateAuthority:  ${ClusterCA}
+                cidr: ${ServiceCIDR}
+                name: ${ClusterName}
+
+            --//--
+        MetadataOptions:
+          HttpPutResponseHopLimit: 2
+          HttpEndpoint: enabled
+          HttpTokens: required
+Outputs:
+  LaunchTemplateId:
+    Description: Launch Template id
+    Value: !Ref AL2023LaunchTemplate

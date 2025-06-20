@@ -1,0 +1,21 @@
+*.js
+!jest.config.js
+*.d.ts
+node_modules
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+temp/
+*.pyc
+__pycache__/
+region_index.json
+*_test.py
+*_simplified.py
+debug_*.py
+test_*.py
+deploy/*
+k8s/*
+infrastructure/cdk/cdk.context.json
+infrastructure/cdk/package-lock.json
+.spotter-cache
