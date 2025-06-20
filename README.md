@@ -52,7 +52,7 @@ spotter/
 └── README.md
 ```
 
-## 🚀 Quick Start
+## ⚡️ Quick Start
 
 ### Prerequisites
 
@@ -157,3 +157,7 @@ This will:
 - Destroy the CDK stack (Lambda functions, EventBridge rules)
 - Delete the CloudFormation stack (launch template)
 - Clean up all associated resources
+
+---
+
+Vibe coded with [Amazon Q](https://github.com/aws/amazon-q-developer-cli)
