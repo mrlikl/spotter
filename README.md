@@ -39,15 +39,17 @@ Spotter is an intelligent, cost-optimized system for managing EC2 spot instances
 
 ```
 spotter/
+├── docs/
+│   └── troubleshooting.md            # Comprehensive troubleshooting guide
 ├── infrastructure/
 │   ├── cfn/
 │   │   └── launch-template.yaml      # EKS node launch template
-│   ├── cdk/                          # CDK stack for Lambda functions
-│   └── lambda/
-│       ├── spotter/                  # Pricing analysis Lambda
-│       └── instancerunner/           # Instance launching Lambda
-├── k8s/                              # Kubernetes controller
-├── deploy/                           # Deployment manifests
+│   └── cdk/                          # CDK stack for Lambda functions
+│       ├── bin/spotter.ts            # CDK app entry point
+│       ├── lib/spotter-stack.ts      # Main stack definition
+│       └── lambda/
+│           ├── spotter/              # Pricing analysis Lambda
+│           └── instancerunner/       # Instance launching Lambda
 ├── Makefile                          # Deployment automation
 └── README.md
 ```
@@ -59,8 +61,10 @@ spotter/
 - AWS CLI configured with appropriate permissions
 - Node.js and npm installed
 - CDK installed (`npm install -g aws-cdk`)
+- CDK bootstrapped in your target region (`cdk bootstrap`)
 - kubectl configured for your EKS cluster
 - jq installed for JSON processing
+- EC2 Spot service-linked role (created automatically or manually)
 
 ### Deployment
 
@@ -83,26 +87,39 @@ This will:
 - Deploy CDK stack with Lambda functions
 - Set up EventBridge rules for spot interruption handling
 
-3. **Deploy Kubernetes controller** (work-in-progress):
-```bash
-kubectl apply -f deploy/kubernetes/
-```
+3. **Initial testing**:
 
-4. Run the lambda's initially 
+   **Run Spotter Lambda** (analyze pricing):
+   ```bash
+   aws lambda invoke --function-name Spotter response.json
+   cat response.json
+   ```
 
-Invoke Spotter 
-```
-aws lambda invoke --function-name Spotter response.json
-```
+   **Launch instances** (test InstanceRunner):
+   ```bash
+   aws lambda invoke \
+       --function-name InstanceRunner \
+       --payload '{ "instance_count": "2" }' \
+       --cli-binary-format raw-in-base64-out \
+       response.json
+   cat response.json
+   ```
 
-Invoke Instance runner
-```
-aws lambda invoke \
-    --function-name InstanceRunner \
-    --payload '{ "instance_count": "6" }' \
-    --cli-binary-format raw-in-base64-out \
-    response.json
-```
+4. **Configure EKS node access** (required for nodes to join cluster):
+
+   For EKS 1.23+, add access entry:
+   ```bash
+   NODE_ROLE_ARN=$(aws iam get-role --role-name SpotterNodeRole --query 'Role.Arn' --output text)
+   aws eks create-access-entry \
+       --cluster-name YOUR_CLUSTER_NAME \
+       --principal-arn $NODE_ROLE_ARN \
+       --type EC2_LINUX
+   ```
+
+5. **Deploy Kubernetes controller** (work-in-progress):
+   ```bash
+   # Coming soon - Pending Pod Controller
+   ```
  
 ## 🔍 Instance Filtering
 
@@ -115,23 +132,14 @@ Spotter automatically filters instances based on:
 
 ## 🔧 Troubleshooting
 
+For comprehensive troubleshooting guidance, see [docs/troubleshooting.md](docs/troubleshooting.md).
+
+### Quick Debug Commands
+
 Instance data is stored in SSM for each AZ:
-- `/spotter/spot/us-west-2a` - Top 3 instances for AZ A
-- `/spotter/spot/us-west-2b` - Top 3 instances for AZ B
-- `/spotter/spot/us-west-2c` - Top 3 instances for AZ C
-- `/spotter/spot/us-west-2d` - Top 3 instances for AZ D
-
-### Common Issues
-
-1. **InsufficientCapacity errors**:
-   - System automatically retries with next cheapest instance
-   - Check CloudWatch logs for fallback attempts
-
-2. **No instances found**:
-   - Verify pricing API access and instance filtering criteria
-   - Check minimum savings percentage threshold
-
-### Debugging
+- `/spotter/spot/us-west-2a` - Top 6 instances for AZ A
+- `/spotter/spot/us-west-2b` - Top 6 instances for AZ B  
+- `/spotter/spot/us-west-2c` - Top 6 instances for AZ C
 
 ```bash
 # Check Lambda logs
@@ -139,11 +147,24 @@ aws logs tail /aws/lambda/Spotter --follow
 aws logs tail /aws/lambda/InstanceRunner --follow
 
 # Check SSM parameters
-aws ssm get-parameter --name "/spotter/spot/us-west-2a"
+aws ssm get-parameters-by-path --path "/spotter/spot" --recursive
 
-# Verify launch template
-aws ec2 describe-launch-templates --launch-template-ids lt-xxxxx
+# List launched instances
+aws ec2 describe-instances \
+    --filters "Name=tag:ManagedBy,Values=Spotter" \
+    --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,Placement.AvailabilityZone]' \
+    --output table
+
+# Check EKS nodes
+kubectl get nodes -o wide
 ```
+
+### Common Issues
+
+- **Service-linked role errors**: Run `aws iam create-service-linked-role --aws-service-name spot.amazonaws.com`
+- **CDK bootstrap required**: Run `cdk bootstrap` in your target region
+- **Nodes not joining cluster**: Configure EKS access entries or aws-auth ConfigMap
+- **InsufficientCapacity**: System automatically tries next cheapest instance
 
 ## 🧹 Cleanup
 

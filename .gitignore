@@ -19,3 +19,4 @@ k8s/*
 infrastructure/cdk/cdk.context.json
 infrastructure/cdk/package-lock.json
 .spotter-cache
+response.json
