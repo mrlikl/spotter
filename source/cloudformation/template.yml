@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "This stack contains the Lambda functions managed by [Spotter](https://github.com/mrlikl/spotter) to analyse the spot price and launch EKS worker nodes"
+
+Parameters:
+  MinSavingsPercent:
+    Type: String
+    Default: "80"
+    Description: Minimum savings percentage as compared to on-demand instances
+
+  CheckFrequencyMinutes:
+    Type: String
+    Default: "10"
+    Description: The frequency to check spot prices in minutes
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Timeout: 90
+    MemorySize: 128
+
+Resources:
+  # Spotter Lambda Function - Analyzes spot pricing
+  SpotterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: Spotter
+      CodeUri: ../../lambda/spotter/
+      Handler: index.lambda_handler
+      Description: Analyzes spot pricing and finds optimal instances
+      Environment:
+        Variables:
+          MIN_SAVINGS_PERCENT: !Ref MinSavingsPercent
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ec2:DescribeInstanceTypes
+                - ec2:DescribeSpotPriceHistory
+                - ssm:PutParameter
+                - pricing:GetProducts
+              Resource: "*"
+      Events:
+        SpotterSchedule:
+          Type: ScheduleV2
+          Properties:
+            Description: !Sub "Invokes Spotter lambda function every ${CheckFrequencyMinutes} minutes"
+            ScheduleExpression: !Sub "rate(${CheckFrequencyMinutes} minutes)"
+
+  # InstanceRunner Lambda Function - Launches spot instances
+  InstanceRunnerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: InstanceRunner
+      CodeUri: ../../lambda/instancerunner/
+      Handler: index.lambda_handler
+      Description: Launches spot instances based on Spotter recommendations
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - ec2:RunInstances
+                - ec2:DescribeSubnets
+                - ec2:DescribeInstances
+                - ec2:CreateTags
+                - ssm:GetParameter
+                - ssm:GetParameters
+                - ssm:GetParametersByPath
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - iam:PassRole
+              Resource: "*"
+              Condition:
+                StringEquals:
+                  "iam:PassedToService": "ec2.amazonaws.com"
+      Events:
+        SpotInterruptionEvent:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: default
+            Pattern:
+              source:
+                - aws.ec2
+              detail-type:
+                - EC2 Spot Instance Interruption Warning
+
+Outputs:
+  SpotterFunctionArn:
+    Description: "Spotter Lambda Function ARN"
+    Value: !GetAtt SpotterFunction.Arn
+
+  InstanceRunnerFunctionArn:
+    Description: "InstanceRunner Lambda Function ARN"
+    Value: !GetAtt InstanceRunnerFunction.Arn
+
+  StackName:
+    Description: "Spotter infra stack name"
+    Value: !Ref AWS::StackName

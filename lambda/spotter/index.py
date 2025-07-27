@@ -75,7 +75,7 @@ def store_in_ssm_per_az(results_by_az: Dict[str, List[Dict]]) -> None:
     """Store results in SSM with one parameter per AZ"""
 
     ssm_operations = {
-        f"/spotter/spot/{az}": json.dumps(results)
+        f"/spotter/prices/{az}": json.dumps(results)
         for az, results in results_by_az.items()
         if results
     }

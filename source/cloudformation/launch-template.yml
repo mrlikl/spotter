@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Amazon EKS Node Group -> node group resource of a Amazon EKS cluster"
+Description: "This template contains the launch template used by [Spotter](https://github.com/mrlikl/spotter) to launch EKS worker nodes"
 
 Parameters:
   ClusterSecurityGroup:
@@ -9,10 +9,6 @@ Parameters:
   ClusterName:
     Type: String
     Description: The cluster name provided when the cluster was created. If it is incorrect, nodes will not be able to join the cluster.
-
-  VpcId:
-    Type: "AWS::EC2::VPC::Id"
-    Description: The VPD Id
 
   ClusterCA:
     Type: String
@@ -34,7 +30,7 @@ Resources:
   NodeInstanceRole:
     Type: "AWS::IAM::Role"
     Properties:
-      RoleName: "SpotterNodeRole"
+      RoleName: !Sub "SpotterNodeRole${ClusterName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -93,3 +89,6 @@ Outputs:
   LaunchTemplateId:
     Description: Launch Template id
     Value: !Ref AL2023LaunchTemplate
+  NodeInstanceRole:
+    Description: Node IAM Role
+    Value: !GetAtt NodeInstanceRole.Arn

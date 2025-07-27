@@ -2,182 +2,119 @@
 
 **Production-grade spot instance scheduling for EKS worker nodes**
 
-Spotter is an intelligent, cost-optimized system for managing EC2 spot instances as EKS worker nodes. It automatically finds the cheapest ARM64 spot instances across availability zones, handles spot interruptions gracefully, and maintains cluster capacity with intelligent fallback mechanisms.
+Spotter intelligently manages EC2 spot instances as EKS worker nodes, automatically finding the cheapest ARM64 instances across availability zones while handling interruptions gracefully. Achieves 70-80% cost savings over on-demand instances.
 
-## 🚀 Features
+## Features
 
-- **Intelligent Pricing Analysis**: Real-time spot vs on-demand price comparison using AWS Pricing API
-- **Multi-AZ Optimization**: Finds top 6 cheapest instances per availability zone
-- **Smart Interruption Handling**: Automatically replaces interrupted instances with fallback options
-- **ARM64 Focus**: Optimized for modern ARM64 instance families (c7g, c8g, m7g, m8g, r7g, r8g)
-- **EKS Integration**: Seamless integration with existing EKS clusters via launch templates
-- **Cost Savings**: Typically achieves 70-80% cost savings over on-demand instances
+- **Real-time Pricing Analysis**: Continuous spot price monitoring with automatic instance selection
+- **Multi-AZ Distribution**: Optimal instance placement across availability zones
+- **Interruption Resilience**: Automatic replacement with fallback instance types
+- **ARM64 Optimization**: Targets modern ARM64 families (c7g, c8g, m7g, m8g, r7g, r8g)
+- **EKS Integration**: Native integration via CloudFormation launch templates
 
-## 🏗️ Architecture
+## Architecture
 
-### Components
+### Core Components
 
-#### Spotter Lambda
-- **Purpose**: Analyzes spot pricing and finds optimal instances
-- **Frequency**: Runs every 10 minutes via EventBridge
-- **Output**: Stores top 6 instances per AZ in SSM parameters (`/spotter/spot/{az}`)
-- **Filters**: ARM64, current-generation, non-burstable instances
+**Spotter Lambda**
+- Analyzes spot pricing every 10 minutes
+- Stores top 6 cheapest instances per AZ in SSM parameters
+- Filters for ARM64, current-generation, non-burstable instances
 
-#### InstanceRunner Lambda
-- **Purpose**: Launches spot instances based on Spotter recommendations
-- **Triggers**: 
-  - Manual with the payload `{ "instance_count": "6" }`
-  - Spot interruption events (replaces in the same AZ)
-- **Fallback**: Automatically tries next cheapest instance on InsufficientCapacity
-- **Integration**: Uses CloudFormation launch templates for EKS node configuration
+**InstanceRunner Lambda**
+- Launches instances based on pricing recommendations
+- Handles spot interruption events with same-AZ replacement
+- Implements intelligent fallback on Capacity issues
 
-#### Pending Pod Controller (Kubernetes) (VIBE-CODING-IN-PROGRESS)
-- **Purpose**: Monitors for pods stuck in FailedScheduling state
-- **Action**: Sends notifications when additional nodes are needed
-
-## 📁 Project Structure
-
-```
-spotter/
-├── docs/
-│   └── troubleshooting.md            # Comprehensive troubleshooting guide
-├── infrastructure/
-│   ├── cfn/
-│   │   └── launch-template.yaml      # EKS node launch template
-│   └── cdk/                          # CDK stack for Lambda functions
-│       ├── bin/spotter.ts            # CDK app entry point
-│       ├── lib/spotter-stack.ts      # Main stack definition
-│       └── lambda/
-│           ├── spotter/              # Pricing analysis Lambda
-│           └── instancerunner/       # Instance launching Lambda
-├── Makefile                          # Deployment automation
-└── README.md
-```
-
-## ⚡️ Quick Start
+## Installation
 
 ### Prerequisites
 
 - AWS CLI configured with appropriate permissions
-- Node.js and npm installed
-- CDK installed (`npm install -g aws-cdk`)
-- CDK bootstrapped in your target region (`cdk bootstrap`)
-- kubectl configured for your EKS cluster
-- jq installed for JSON processing
-- EC2 Spot service-linked role (created automatically or manually)
+- SAM CLI installed
+- EKS cluster with kubectl access
+- EC2 Spot service-linked role
 
-### Deployment
+### Quick Start
 
-1. **Clone and setup**:
+1. **Bootstrap Infrastructure**
 ```bash
-git clone https://github.com/mrlikl/spotter
-cd spotter
+spotter bootstrap --region us-west-2
 ```
 
-2. **Deploy infrastructure**:
+2. **Onboard EKS Cluster**
 ```bash
-make deploy
+spotter onboard my-cluster --region us-west-2
 ```
 
-This will:
-- Prompt for EKS cluster name and region
-- Fetch cluster details automatically
-- Deploy CloudFormation launch template
-- Prompts user for the Subnets to provision the nodes into
-- Deploy CDK stack with Lambda functions
-- Set up EventBridge rules for spot interruption handling
+3. **Launch Instances**
+```bash
+spotter scale my-cluster --count 3
+```
 
-3. **Initial testing**:
+## Commands
 
-   **Run Spotter Lambda** (analyze pricing):
-   ```bash
-   aws lambda invoke --function-name Spotter response.json
-   cat response.json
-   ```
+### Infrastructure Management
+```bash
+spotter bootstrap [--region REGION] [--min-savings 80] [--check-frequency 10]
+spotter destroy [--region REGION]
+```
 
-   **Launch instances** (test InstanceRunner):
-   ```bash
-   aws lambda invoke \
-       --function-name InstanceRunner \
-       --payload '{ "instance_count": "2" }' \
-       --cli-binary-format raw-in-base64-out \
-       response.json
-   cat response.json
-   ```
+### Cluster Operations
+```bash
+spotter onboard CLUSTER [--region REGION] [--subnets SUBNET_IDS]
+spotter offboard CLUSTER [--region REGION]
+spotter list-clusters [--region REGION]
+```
 
-4. **Configure EKS node access** (required for nodes to join cluster):
+### Instance Management
+```bash
+spotter scale CLUSTER --count COUNT [--scale-to-count] [--region REGION]
+spotter list-instances CLUSTER [--region REGION]
+spotter rebalance CLUSTER [--region REGION]
+```
 
-   For EKS 1.23+, add access entry:
-   ```bash
-   NODE_ROLE_ARN=$(aws iam get-role --role-name SpotterNodeRole --query 'Role.Arn' --output text)
-   aws eks create-access-entry \
-       --cluster-name YOUR_CLUSTER_NAME \
-       --principal-arn $NODE_ROLE_ARN \
-       --type EC2_LINUX
-   ```
+### Monitoring
+```bash
+spotter pricing [--region REGION]
+spotter refresh-prices [--region REGION]
+```
 
-5. **Deploy Kubernetes controller** (work-in-progress):
-   ```bash
-   # Coming soon - Pending Pod Controller
-   ```
- 
-## 🔍 Instance Filtering
+## Configuration
 
-Spotter automatically filters instances based on:
+### Instance Selection Criteria
 - **Architecture**: ARM64 only
 - **Families**: c7g, c8g, m7g, m8g, r7g, r8g
-- **Generation**: Current generation only
-- **Performance**: Non-burstable instances
-- **EKS Compatibility**: Pod density < 110 pods per node
+- **Generation**: Current generation
+- **Performance**: Non-burstable
+- **EKS Compatibility**: <110 pods per node
 
-## 🔧 Troubleshooting
+### Data Storage
+Pricing data stored in SSM parameters:
+- `/spotter/prices/{az}` - Top 6 instances per availability zone
+- `/spotter/settings/{cluster}` - Cluster configuration
 
-For comprehensive troubleshooting guidance, see [docs/troubleshooting.md](docs/troubleshooting.md).
 
-### Quick Debug Commands
+## Monitoring & Troubleshooting
 
-Instance data is stored in SSM for each AZ:
-- `/spotter/spot/us-west-2a` - Top 6 instances for AZ A
-- `/spotter/spot/us-west-2b` - Top 6 instances for AZ B  
-- `/spotter/spot/us-west-2c` - Top 6 instances for AZ C
+### CloudWatch Logs
+- `/aws/lambda/Spotter` - Pricing analysis logs
+- `/aws/lambda/InstanceRunner` - Instance launch logs
 
+### Troubleshooting
+See [docs/troubleshooting.md](docs/troubleshooting.md) for comprehensive troubleshooting guidance.
+
+## Cleanup
+
+Remove all Spotter resources:
 ```bash
-# Check Lambda logs
-aws logs tail /aws/lambda/Spotter --follow
-aws logs tail /aws/lambda/InstanceRunner --follow
-
-# Check SSM parameters
-aws ssm get-parameters-by-path --path "/spotter/spot" --recursive
-
-# List launched instances
-aws ec2 describe-instances \
-    --filters "Name=tag:ManagedBy,Values=Spotter" \
-    --query 'Reservations[*].Instances[*].[InstanceId,InstanceType,State.Name,Placement.AvailabilityZone]' \
-    --output table
-
-# Check EKS nodes
-kubectl get nodes -o wide
+spotter destroy --region us-west-2
 ```
 
-### Common Issues
-
-- **Service-linked role errors**: Run `aws iam create-service-linked-role --aws-service-name spot.amazonaws.com`
-- **CDK bootstrap required**: Run `cdk bootstrap` in your target region
-- **Nodes not joining cluster**: Configure EKS access entries or aws-auth ConfigMap
-- **InsufficientCapacity**: System automatically tries next cheapest instance
-
-## 🧹 Cleanup
-
-To remove all Spotter resources:
-
+For cluster-specific cleanup:
 ```bash
-make destroy
+spotter offboard my-cluster --region us-west-2
 ```
-
-This will:
-- Destroy the CDK stack (Lambda functions, EventBridge rules)
-- Delete the CloudFormation stack (launch template)
-- Clean up all associated resources
 
 ---
 

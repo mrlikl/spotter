@@ -11,9 +11,24 @@ logger.setLevel("INFO")
 ec2_client = boto3.client('ec2')
 ssm_client = boto3.client('ssm')
 
-EKS_CLUSTER_NAME = os.environ.get('EKS_CLUSTER_NAME')
-LAUNCH_TEMPLATE_ID = os.environ.get('LAUNCH_TEMPLATE_ID')
-DESIRED_INSTANCE_COUNT = int(os.environ.get('DESIRED_INSTANCE_COUNT', '1'))
+
+def get_cluster_settings(cluster_name: str) -> Dict:
+    """Get cluster settings from SSM parameter"""
+    param_name = f"/spotter/settings/{cluster_name}"
+
+    try:
+        response = ssm_client.get_parameter(Name=param_name)
+        settings = json.loads(response['Parameter']['Value'])
+        logger.info(f"Retrieved settings for cluster {cluster_name}")
+        return settings
+    except ssm_client.exceptions.ParameterNotFound:
+        logger.error(
+            f"Settings not found for cluster {cluster_name}. Run 'spotter onboard {cluster_name}' first.")
+        raise Exception(
+            f"Cluster {cluster_name} not onboarded. Run 'spotter onboard {cluster_name}' first.")
+    except Exception as e:
+        logger.error(f"Error getting settings for cluster {cluster_name}: {e}")
+        raise
 
 
 def get_subnet_az_mapping(subnet_ids: List[str]) -> Dict[str, str]:
@@ -25,24 +40,21 @@ def get_subnet_az_mapping(subnet_ids: List[str]) -> Dict[str, str]:
     }
 
 
-SUBNET_IDS = os.environ.get('SUBNET_IDS', '').split(',')
-SUBNET_MAP = get_subnet_az_mapping(SUBNET_IDS) if SUBNET_IDS != [''] else {}
-
-
-def get_tag_specifications(retry_count: int = 0) -> List[Dict]:
+def get_tag_specifications(cluster_name: str, retry_count: int = 0) -> List[Dict]:
     return [{
         'ResourceType': 'instance',
         'Tags': [
-            {'Key': 'Name', 'Value': f'Spotter-Node-{EKS_CLUSTER_NAME}'},
-            {'Key': f'kubernetes.io/cluster/{EKS_CLUSTER_NAME}', 'Value': 'owned'},
-            {'Key': 'ManagedBy', 'Value': 'Spotter'},
-            {'Key': 'RetryCount', 'Value': str(retry_count)}
+            {'Key': 'name', 'Value': f'spotter-node-{cluster_name}'},
+            {'Key': f'kubernetes.io/cluster/{cluster_name}', 'Value': 'owned'},
+            {'Key': 'managedby', 'Value': 'spotter'},
+            {'Key': 'cluster', 'Value': cluster_name},
+            {'Key': 'retrycount', 'Value': str(retry_count)}
         ]
     }]
 
 
-def is_spotter_managed_instance(instance_id: str) -> bool:
-    """Check if the interrupted instance was launched by Spotter"""
+def is_spotter_managed_instance(instance_id: str) -> Optional[str]:
+    """Check if the interrupted instance was launched by Spotter and return cluster name"""
     try:
         response = ec2_client.describe_instances(InstanceIds=[instance_id])
 
@@ -52,37 +64,43 @@ def is_spotter_managed_instance(instance_id: str) -> bool:
                         for tag in instance.get('Tags', [])}
 
                 # Check for Spotter-specific tags
-                if (tags.get('ManagedBy') == 'Spotter' and
-                        tags.get(f'kubernetes.io/cluster/{EKS_CLUSTER_NAME}') == 'owned'):
-                    logger.info(f"Instance {instance_id} is Spotter-managed")
-                    return True
+                if (tags.get('managedby') == 'spotter'):
+                    cluster_name = tags.get('cluster')
+                    logger.info(
+                        f"Instance {instance_id} is Spotter-managed for cluster {cluster_name}")
+                    return cluster_name
 
         logger.info(f"Instance {instance_id} is NOT Spotter-managed")
-        return False
+        return None
 
     except Exception as e:
         logger.error(f"Error checking instance {instance_id}: {e}")
-        return False
+        return None
 
 
-def is_spot_interruption_event(event: Dict) -> Optional[str]:
+def is_spot_interruption_event(event: Dict) -> Optional[Dict]:
     """Check if event is spot interruption for Spotter-managed instance"""
     try:
         if (event.get('source') == 'aws.ec2' and
                 event.get('detail-type') == 'EC2 Spot Instance Interruption Warning'):
 
-            # Extract instance ID and AZ from resources ARN
+            # Extract instance ID from resources ARN
             resources = event.get('resources', [])
             if resources:
                 arn = resources[0]
                 instance_id = arn.split('/')[-1]  # Extract instance ID
                 az = arn.split(':')[3]  # Extract AZ
 
-                # Verify this is a Spotter-managed instance
-                if is_spotter_managed_instance(instance_id):
+                # Verify this is a Spotter-managed instance and get cluster name
+                cluster_name = is_spotter_managed_instance(instance_id)
+                if cluster_name:
                     logger.info(
-                        f"Spot interruption for Spotter instance {instance_id} in {az}")
-                    return az
+                        f"Spot interruption for Spotter instance {instance_id} in {az} for cluster {cluster_name}")
+                    return {
+                        'cluster_name': cluster_name,
+                        'az': az,
+                        'instance_id': instance_id
+                    }
                 else:
                     logger.info(
                         f"Ignoring interruption for non-Spotter instance {instance_id}")
@@ -96,7 +114,7 @@ def is_spot_interruption_event(event: Dict) -> Optional[str]:
 
 def get_instances_for_az(az: str) -> List[Dict]:
     """Get spot instances for specific AZ from SSM"""
-    param_name = f"/spotter/spot/{az}"
+    param_name = f"/spotter/prices/{az}"
 
     try:
         response = ssm_client.get_parameter(Name=param_name)
@@ -111,25 +129,17 @@ def get_instances_for_az(az: str) -> List[Dict]:
         return []
 
 
-def get_top_instance_per_az() -> List[Dict]:
-    """Get top (cheapest) instance from each AZ"""
-    instances = [
-        az_instances[0]
-        for az in SUBNET_MAP.keys()
-        if (az_instances := get_instances_for_az(az))
-    ]
-
-    logger.info(f"Selected 1 instance from each of {len(instances)} AZs")
-    return instances
-
-
-def launch_spot_instance(instance_data: Dict, retry_count: int = 0) -> Optional[str]:
+def launch_spot_instance(instance_data: Dict, cluster_settings: Dict, retry_count: int = 0) -> Optional[str]:
     """Launch spot instance with retry logic for InsufficientCapacity"""
     instance_type = instance_data['instance_type']
     az = instance_data['az']
     max_price = instance_data['spot_price']
 
-    subnet_id = SUBNET_MAP.get(az)
+    launch_template_id = cluster_settings['launch_template_id']
+    subnet_map = cluster_settings['subnet_map']
+    cluster_name = cluster_settings['cluster_name']
+
+    subnet_id = subnet_map.get(az)
     if not subnet_id:
         logger.error(f"No subnet found for AZ {az}")
         return None
@@ -147,12 +157,12 @@ def launch_spot_instance(instance_data: Dict, retry_count: int = 0) -> Optional[
                 }
             },
             LaunchTemplate={
-                'LaunchTemplateId': LAUNCH_TEMPLATE_ID,
+                'LaunchTemplateId': launch_template_id,
                 'Version': '$Latest'
             },
             MinCount=1,
             MaxCount=1,
-            TagSpecifications=get_tag_specifications(retry_count)
+            TagSpecifications=get_tag_specifications(cluster_name, retry_count)
         )
 
         instance_id = response['Instances'][0]['InstanceId']
@@ -167,12 +177,16 @@ def launch_spot_instance(instance_data: Dict, retry_count: int = 0) -> Optional[
             logger.warning(
                 f"InsufficientCapacity for {instance_type} in {az}, trying next instance")
             return None
+        elif error_code == 'SpotMaxPriceTooLow':
+            logger.warning(
+                f"SpotMaxPriceTooLow for {instance_type} in {az}, trying next instance")
+            return None
         else:
             logger.error(f"Failed to launch {instance_type} in {az}: {e}")
             raise
 
 
-def launch_with_fallback(az: str) -> Optional[Dict]:
+def launch_with_fallback(az: str, cluster_settings: Dict) -> Optional[Dict]:
     """Launch instance in AZ with fallback to next cheapest on InsufficientCapacity"""
     instances = get_instances_for_az(az)
 
@@ -180,7 +194,8 @@ def launch_with_fallback(az: str) -> Optional[Dict]:
         logger.info(
             f"Trying instance {i+1}/{len(instances)}: {instance_data['instance_type']}")
 
-        instance_id = launch_spot_instance(instance_data, retry_count=i)
+        instance_id = launch_spot_instance(
+            instance_data, cluster_settings, retry_count=i)
 
         if instance_id:
             return {
@@ -194,9 +209,11 @@ def launch_with_fallback(az: str) -> Optional[Dict]:
     return None
 
 
-def distribute_instances_across_azs(total_instances: int) -> List[Dict]:
+def distribute_instances_across_azs(total_instances: int, cluster_settings: Dict) -> List[Dict]:
     """Distribute N instances across available AZs equally"""
-    available_azs = list(SUBNET_MAP.keys())
+    subnet_map = cluster_settings['subnet_map']
+    available_azs = list(subnet_map.keys())
+
     if not available_azs:
         logger.error("No available AZs found")
         return []
@@ -238,32 +255,59 @@ def lambda_handler(event, context):
         logger.info(f"Event: {json.dumps(event)}")
 
         # Check if this is a spot interruption
-        interrupted_az = is_spot_interruption_event(event)
+        interruption_info = is_spot_interruption_event(event)
 
         launched_instances = []
 
-        if interrupted_az:
+        if interruption_info:
             # Spot interruption: launch replacement in specific AZ
-            logger.info(f"Handling spot interruption in {interrupted_az}")
-            result = launch_with_fallback(interrupted_az)
+            cluster_name = interruption_info['cluster_name']
+            az = interruption_info['az']
+
+            logger.info(
+                f"Handling spot interruption in {az} for cluster {cluster_name}")
+
+            # Get cluster settings
+            cluster_settings = get_cluster_settings(cluster_name)
+
+            result = launch_with_fallback(az, cluster_settings)
             if result:
                 launched_instances.append(result)
         else:
-            # Launch N instances distributed across AZs
-            instance_count = int(
-                event.get('instance_count', DESIRED_INSTANCE_COUNT))
-            logger.info(
-                f"Initial run: launching {instance_count} instances distributed across AZs")
-            instances = distribute_instances_across_azs(instance_count)
+            # Manual invocation with cluster and count
+            cluster_name = event.get('cluster')
+            instance_count = int(event.get('count', 1))
+            az = event.get('az')
 
-            for instance_data in instances:
-                result = launch_with_fallback(instance_data['az'])
-                if result:
-                    launched_instances.append(result)
+            if not cluster_name:
+                raise Exception(
+                    "cluster parameter is required for manual invocation")
+
+            # Get cluster settings
+            cluster_settings = get_cluster_settings(cluster_name)
+
+            if not az:
+                logger.info(
+                    f"Scaling up: launching {instance_count} instances for cluster {cluster_name}")
+                instances = distribute_instances_across_azs(
+                    instance_count, cluster_settings)
+                for instance_data in instances:
+                    result = launch_with_fallback(
+                        instance_data['az'], cluster_settings)
+                    if result:
+                        launched_instances.append(result)
+            else:
+                logger.info(
+                    f"Launching an instance for cluster {cluster_name} in {az}")
+                for n in range(0, instance_count):
+                    result = launch_with_fallback(az, cluster_settings)
+                    if result:
+                        launched_instances.append(result)
 
         response_body = {
             'message': 'Success',
-            'event_type': 'spot_interruption' if interrupted_az else 'initial',
+            'event_type': 'spot_interruption' if interruption_info else 'manual',
+            'cluster_name': interruption_info['cluster_name'] if interruption_info else event.get('cluster'),
             'launched_instances': launched_instances,
             'total_launched': len(launched_instances)
         }
