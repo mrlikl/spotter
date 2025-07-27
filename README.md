@@ -35,59 +35,45 @@ Spotter intelligently manages EC2 spot instances as EKS worker nodes, automatica
 - EKS cluster with kubectl access
 - EC2 Spot service-linked role
 
+```bash
+pip install spotter-cli
+```
+
 ### Quick Start
 
-1. **Bootstrap Infrastructure**
+
 ```bash
-spotter bootstrap --region us-west-2
+# Bootstrap Infrastructure
+$ spotter bootstrap --region us-west-2
+
+# Onboard EKS Cluster
+$ spotter onboard my-cluster --region us-west-2
+
+# Launch Instances
+$ spotter scale my-cluster --count 3 --region us-west-2
 ```
 
-2. **Onboard EKS Cluster**
+### Scale to count
+
+`--scale-to-count` will scale up or down to the `count` specified
+
 ```bash
-spotter onboard my-cluster --region us-west-2
+$ spotter scale my-cluster --count 7 --scale-to-count --region us-west-2
 ```
 
-3. **Launch Instances**
+### Commands
 ```bash
-spotter scale my-cluster --count 3
+bootstrap        Deploy Spotter infrastructure
+destroy          Destroy Spotter infrastructure
+onboard          Onboard an EKS cluster to spotter
+list-clusters    List onboarded clusters
+offboard         Remove a cluster from Spotter
+scale            Scale Spotter instances for a cluster
+list-instances   Show current instance status for a cluster
+rebalance        Rebalance instances across availability zones
+refresh-prices   Refresh spot pricing data
+pricing          View spot pricing data  
 ```
-
-## Commands
-
-### Infrastructure Management
-```bash
-spotter bootstrap [--region REGION] [--min-savings 80] [--check-frequency 10]
-spotter destroy [--region REGION]
-```
-
-### Cluster Operations
-```bash
-spotter onboard CLUSTER [--region REGION] [--subnets SUBNET_IDS]
-spotter offboard CLUSTER [--region REGION]
-spotter list-clusters [--region REGION]
-```
-
-### Instance Management
-```bash
-spotter scale CLUSTER --count COUNT [--scale-to-count] [--region REGION]
-spotter list-instances CLUSTER [--region REGION]
-spotter rebalance CLUSTER [--region REGION]
-```
-
-### Monitoring
-```bash
-spotter pricing [--region REGION]
-spotter refresh-prices [--region REGION]
-```
-
-## Configuration
-
-### Instance Selection Criteria
-- **Architecture**: ARM64 only
-- **Families**: c7g, c8g, m7g, m8g, r7g, r8g
-- **Generation**: Current generation
-- **Performance**: Non-burstable
-- **EKS Compatibility**: <110 pods per node
 
 ### Data Storage
 Pricing data stored in SSM parameters:

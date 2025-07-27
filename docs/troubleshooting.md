@@ -79,6 +79,9 @@ Spotter Lambda runs but no pricing data appears in SSM parameters.
 
 **Debugging:**
 ```bash
+# Refresh prices 
+$ spotter refresh-prices --region us-west-2
+
 # Check Spotter Lambda logs
 aws logs tail /aws/lambda/Spotter --follow
 
@@ -254,10 +257,8 @@ For issues not covered in this guide:
 1. **Check CloudWatch logs** for both Lambda functions
 2. **Verify AWS service quotas** for EC2 and EKS
 3. **Test with minimal configuration** first
-4. **Review AWS service health** dashboard for regional issues
 
 Include the following information when reporting issues:
 - Error messages from CloudWatch logs
 - Cluster configuration (region, subnets, instance types)
 - Output from debugging commands above
-- AWS account ID and region (for service limit verification)
