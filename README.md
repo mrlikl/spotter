@@ -4,7 +4,7 @@
 
 Spotter intelligently manages EC2 spot instances as EKS worker nodes, automatically finding the cheapest ARM64 instances across availability zones while handling interruptions gracefully. Achieves 70-80% cost savings over on-demand instances.
 
-![spotter](docs/spotter.png)
+
 
 ## Features
 
@@ -62,7 +62,6 @@ $ spotter scale my-cluster --count 3 --region us-west-2
 ```bash
 $ spotter scale my-cluster --count 7 --scale-to-count --region us-west-2
 ```
-![scale](docs/scale.png)
 
 ### Rebalancing
 
@@ -71,8 +70,6 @@ rebalance will make the instance spread across AZ's
 ```bash
 $ spotter rebalance my-cluster --region us-west-2
 ```
-![rebalance](docs/rebalance.png)
-
 
 ### Commands
 ```bash
@@ -87,8 +84,6 @@ rebalance        Rebalance instances across availability zones
 refresh-prices   Refresh spot pricing data
 pricing          View spot pricing data  
 ```
-
-![list](docs/list-instances.png)
 
 ### Data Storage
 Pricing data stored in SSM parameters:
