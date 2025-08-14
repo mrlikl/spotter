@@ -3,7 +3,7 @@
 import typer
 from rich.console import Console
 from rich.traceback import install
-
+from importlib.metadata import version
 from source.commands.bootstrap import bootstrap_command
 from source.commands.destroy import destroy_command
 from source.commands.onboard import onboard_command
@@ -19,6 +19,22 @@ install(show_locals=True)
 
 console = Console()
 
+
+def version_callback(value: bool):
+    if value:
+        try:
+            pkg_version = version("spotter-cli")
+        except Exception:
+            # Fallback for development mode
+            try:
+                from importlib.metadata import version as get_version
+                pkg_version = get_version("spotter-cli")
+            except Exception:
+                pkg_version = "dev"
+        console.print(f"[bold blue]Spotter[/bold blue] version [green]{pkg_version}[/green]")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     name="spotter",
     help="Production-grade spot instance scheduling for EKS worker nodes",
@@ -31,17 +47,19 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(False, "--version", "-v", help="Show version and exit")
+    version: bool = typer.Option(False, "--version", "-v", callback=version_callback, help="Show version and exit")
 ):
     """Production-grade spot instance scheduling for EKS worker nodes"""
-    if version:
-        __version__ = "1.0.0"
-        console.print(f"[bold blue]Spotter[/bold blue] version [green]{__version__}[/green]")
-        raise typer.Exit()
-    
     if ctx.invoked_subcommand is None:
-        __version__ = "1.0.0"
-        console.print(f"[bold blue]Spotter[/bold blue] version [green]{__version__}[/green]")
+        try:
+            pkg_version = version("spotter-cli")
+        except Exception:
+            # Fallback for development mode
+            try:
+                pkg_version = version("spotter-cli")
+            except Exception:
+                pkg_version = "dev"
+        console.print(f"[bold blue]Spotter[/bold blue] version [green]{pkg_version}[/green]")
         console.print()
         console.print(ctx.get_help())
         raise typer.Exit()

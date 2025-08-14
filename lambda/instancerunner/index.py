@@ -24,8 +24,7 @@ def get_cluster_settings(cluster_name: str) -> Dict:
     except ssm_client.exceptions.ParameterNotFound:
         logger.error(
             f"Settings not found for cluster {cluster_name}. Run 'spotter onboard {cluster_name}' first.")
-        raise Exception(
-            f"Cluster {cluster_name} not onboarded. Run 'spotter onboard {cluster_name}' first.")
+        raise Exception(f"Cluster {cluster_name} not onboarded. Run 'spotter onboard {cluster_name}' first.")
     except Exception as e:
         logger.error(f"Error getting settings for cluster {cluster_name}: {e}")
         raise
@@ -66,8 +65,7 @@ def is_spotter_managed_instance(instance_id: str) -> Optional[str]:
                 # Check for Spotter-specific tags
                 if (tags.get('managedby') == 'spotter'):
                     cluster_name = tags.get('cluster')
-                    logger.info(
-                        f"Instance {instance_id} is Spotter-managed for cluster {cluster_name}")
+                    logger.info(f"Instance {instance_id} is Spotter-managed for cluster {cluster_name}")
                     return cluster_name
 
         logger.info(f"Instance {instance_id} is NOT Spotter-managed")

@@ -8,7 +8,7 @@ Parameters:
 
   ClusterName:
     Type: String
-    Description: The cluster name provided when the cluster was created. If it is incorrect, nodes will not be able to join the cluster.
+    Description: The EKS cluster name.
 
   ClusterCA:
     Type: String
