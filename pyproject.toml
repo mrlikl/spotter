@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "spotter-cli"
 dynamic = ["version"]
 description = "Production-grade spot instance scheduling for EKS worker nodes"
-readme = "README.md"
+readme = "docs/pyreadme.md"
 license = {file = "LICENSE"}
 authors = [
     {name = "Spotter Authors"}
