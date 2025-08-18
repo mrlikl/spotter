@@ -20,19 +20,10 @@ install(show_locals=True)
 console = Console()
 
 
-def version_callback(value: bool):
-    if value:
-        try:
-            pkg_version = version("spotter-cli")
-        except Exception:
-            # Fallback for development mode
-            try:
-                from importlib.metadata import version as get_version
-                pkg_version = get_version("spotter-cli")
-            except Exception:
-                pkg_version = "dev"
-        console.print(f"[bold blue]Spotter[/bold blue] version [green]{pkg_version}[/green]")
-        raise typer.Exit()
+def version_callback():
+    pkg_version = version("spotter-cli")
+    console.print(f"[bold blue]Spotter[/bold blue] version [green]{pkg_version}[/green]")
+    raise typer.Exit()
 
 
 app = typer.Typer(
@@ -51,16 +42,6 @@ def main(
 ):
     """Production-grade spot instance scheduling for EKS worker nodes"""
     if ctx.invoked_subcommand is None:
-        try:
-            pkg_version = version("spotter-cli")
-        except Exception:
-            # Fallback for development mode
-            try:
-                pkg_version = version("spotter-cli")
-            except Exception:
-                pkg_version = "dev"
-        console.print(f"[bold blue]Spotter[/bold blue] version [green]{pkg_version}[/green]")
-        console.print()
         console.print(ctx.get_help())
         raise typer.Exit()
 
