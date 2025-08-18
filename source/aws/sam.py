@@ -43,12 +43,12 @@ class SAMDeployer:
 
         param_overrides = []
         for key, value in parameters.items():
-            param_overrides.extend(["--parameter-overrides", f"{key}={value}"])
+            param_overrides.append(f"{key}={value}")
 
         tag_overrides = []
         if tags:
             for key, value in tags.items():
-                tag_overrides.extend(["--tags", f"{key}={value}"])
+                tag_overrides.append(f"{key}={value}")
 
         deploy_cmd = [
             "sam", "deploy",
@@ -61,9 +61,11 @@ class SAMDeployer:
         ]
 
         if param_overrides:
+            deploy_cmd.append("--parameter-overrides")
             deploy_cmd.extend(param_overrides)
 
         if tag_overrides:
+            deploy_cmd.append("--tags")
             deploy_cmd.extend(tag_overrides)
 
         if not confirm_changeset:
@@ -89,9 +91,9 @@ class SAMDeployer:
             return True
 
         except subprocess.CalledProcessError as e:
-            console.print(f"[red]CloudFormation deployment failed[/red]")
+            console.print("[red]CloudFormation deployment failed[/red]")
             if e.stderr:
-                console.print(f"[red]{e.stderr}[/red]")
+                console.print("[red]{e.stderr}[/red]")
             return False
 
     def delete_stack(self, stack_name: str, region: str) -> bool:

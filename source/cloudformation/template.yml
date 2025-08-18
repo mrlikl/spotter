@@ -5,7 +5,7 @@ Description: "This stack contains the Lambda functions managed by [Spotter](http
 Parameters:
   MinSavingsPercent:
     Type: String
-    Default: "80"
+    Default: "70"
     Description: Minimum savings percentage as compared to on-demand instances
 
   CheckFrequencyMinutes:
@@ -25,7 +25,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: Spotter
-      CodeUri: ../../lambda/spotter/
+      CodeUri: ../lambda/spotter/
       Handler: index.lambda_handler
       Description: Analyzes spot pricing and finds optimal instances
       Environment:
@@ -53,7 +53,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: InstanceRunner
-      CodeUri: ../../lambda/instancerunner/
+      CodeUri: ../lambda/instancerunner/
       Handler: index.lambda_handler
       Description: Launches spot instances based on Spotter recommendations
       Policies:

@@ -13,7 +13,7 @@ console = Console()
 
 def bootstrap_command(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
-    min_savings_percent: int = typer.Option(80, "--min-savings", help="Minimum savings percentage"),
+    min_savings_percent: int = typer.Option(70, "--min-savings", help="Minimum savings percentage"),
     check_frequency_minutes: int = typer.Option(10, "--check-frequency", help="Check frequency in minutes"),
 ):
     """Deploy Spotter infrastructure."""

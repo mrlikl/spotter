@@ -44,6 +44,7 @@ Resources:
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
         - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMPatchAssociation"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEKS_CNI_Policy"
       Path: /
 
   NodeInstanceProfile:
@@ -79,6 +80,9 @@ Resources:
                 certificateAuthority:  ${ClusterCA}
                 cidr: ${ServiceCIDR}
                 name: ${ClusterName}
+              kubelet:
+                flags:
+                - "--node-labels=eks.amazonaws.com/capacityType=SPOT,eks.amazonaws.com/nodegroup=al2023,managedby=spotter"
 
             --//--
         MetadataOptions:
